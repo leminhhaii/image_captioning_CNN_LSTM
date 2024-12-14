@@ -9,6 +9,8 @@ from dataset import *
 greedy_model_path = "base_model.pth"
 beam_model_path = "new_beam_search.pth"
 vocab_path = 'flickr30k_vocab.pkl'
+#Replace with image file direct on your computer
+image_path ="D:/HUST/20241/Intro to deep learning/flickr8k/Images/2307451605_22e9c06530.jpg" 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -65,8 +67,7 @@ def main():
     vocab = load_vocab(vocab_path)
     greedy_model = load_model(greedy_model_path, vocab_size=len(vocab), embed_size=300, attention_dim=256, encoder_dim=2048, decoder_dim=512)
     beam_model = load_model(beam_model_path, vocab_size=len(vocab), embed_size=300, attention_dim=256, encoder_dim=2048, decoder_dim=512)
-    #Replace with image file direct on your computer
-    image_path ="D:/HUST/20241/Intro to deep learning/flickr8k/Images/2307451605_22e9c06530.jpg" 
+    
     greedy_caption_predict(image_path, greedy_model, vocab)
     greedy_caption_predict(image_path, beam_model, vocab)
 main()
