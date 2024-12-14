@@ -52,7 +52,6 @@ class Attention(nn.Module):
         attention_scores = self.A(combined_states)         #(batch_size,num_layers,1)
         attention_scores = attention_scores.squeeze(2)     #(batch_size,num_layers)
         
-        
         alpha = F.softmax(attention_scores,dim=1)          #(batch_size,num_layers)
         
         attention_weights = features * alpha.unsqueeze(2)  #(batch_size,num_layers,features_dim)
@@ -73,17 +72,13 @@ class DecoderRNN(nn.Module):
         self.embedding = nn.Embedding(vocab_size,embed_size)
         self.attention = Attention(encoder_dim,decoder_dim,attention_dim)
         
-        
         self.init_h = nn.Linear(encoder_dim, decoder_dim)  
         self.init_c = nn.Linear(encoder_dim, decoder_dim)  
         self.lstm_cell = nn.LSTMCell(embed_size+encoder_dim,decoder_dim,bias=True)
         self.f_beta = nn.Linear(decoder_dim, encoder_dim)
         
-        
         self.fcn = nn.Linear(decoder_dim,vocab_size)
         self.drop = nn.Dropout(drop_prob)
-        
-        
     
     def forward(self, features, captions):
         
@@ -114,7 +109,7 @@ class DecoderRNN(nn.Module):
         
         return preds, alphas
     
-    def generate_caption(self,features,max_len=20,vocab=None):
+    def greedy_generate_caption(self,features,max_len=20,vocab=None):
         # Inference part
         # Given the image features generate the captions
         
@@ -126,39 +121,89 @@ class DecoderRNN(nn.Module):
         #starting input
         word = torch.tensor(vocab.stoi['<SOS>']).view(1,-1).to(device)
         embeds = self.embedding(word)
-
         
         captions = []
         
         for i in range(max_len):
             alpha,context = self.attention(features, h)
-            
-            
             #store the apla score
             alphas.append(alpha.cpu().detach().numpy())
-            
             lstm_input = torch.cat((embeds[:, 0], context), dim=1)
             h, c = self.lstm_cell(lstm_input, (h, c))
             output = self.fcn(self.drop(h))
             output = output.view(batch_size,-1)
-        
-            
             #select the word with most val
             predicted_word_idx = output.argmax(dim=1)
-            
             #save the generated word
             captions.append(predicted_word_idx.item())
-            
             #end if <EOS detected>
             if vocab.itos[predicted_word_idx.item()] == "<EOS>":
                 break
-            
             #send generated word as the next caption
             embeds = self.embedding(predicted_word_idx.unsqueeze(0))
-        
         #covert the vocab idx to words and return sentence
         return [vocab.itos[idx] for idx in captions],alphas
     
+    # using beam search 
+    def beam_generate_caption(self, features, max_len=20, vocab=None, beam_size=3):
+        # Inference part using beam search with log-probabilities
+        batch_size = features.size(0)
+        h, c = self.init_hidden_state(features)  # (batch_size, decoder_dim)
+    
+        alphas = []
+    
+        # Starting input (the <SOS> token)
+        word = torch.tensor(vocab.stoi['<SOS>']).view(1, -1).to(device)
+        embeds = self.embedding(word)
+    
+        # Initialize beams with the first token and its probability
+        beams = [(embeds, h, c, [vocab.stoi['<SOS>']], 0)]  # (input embedding, h, c, list of previous word indices, score)
+    
+        for step in range(max_len):  # At each timestep
+            all_candidates = []
+    
+            # Expand each beam by generating the next word
+            for embeds, h, c, seq, score in beams:  # Iterate over each beam
+                # If this beam has finished (contains <EOS>), just add it to all_candidates without generating new word 
+                if seq and seq[-1] == vocab.stoi['<EOS>']:
+                    all_candidates.append((embeds, h, c, seq, score))
+                    continue
+    
+                # Calculate attention and context for each beam
+                alpha, context = self.attention(features, h)
+                alphas.append(alpha.cpu().detach().numpy())
+    
+                lstm_input = torch.cat((embeds[:, 0], context), dim=1)
+                h, c = self.lstm_cell(lstm_input, (h, c))
+                output = self.fcn(self.drop(h))  # (batch_size, vocab_size)
+                output = output.view(batch_size, -1)
+    
+                # Calculate log-probabilities of the next word
+                log_probs = torch.log_softmax(output, dim=1)  # Convert scores to log-probabilities
+    
+                # Select the top beam_size words with the highest log-probabilities
+                topk_log_probs, topk_indices = torch.topk(log_probs, beam_size, dim=1)
+    
+                for i in range(beam_size):
+                    # For each candidate, append the word and score
+                    word_idx = topk_indices[:, i]
+                    new_log_prob = topk_log_probs[:, i].item()  # Take the log probability of the word
+                    new_score = score + new_log_prob  # Add log-probability to the previous score
+                    new_seq = seq + [word_idx.item()]
+    
+                    all_candidates.append((self.embedding(word_idx.unsqueeze(0)), h, c, new_seq, new_score))
+    
+            # Sort all candidates by score (descending) and update beams
+            beams = sorted(all_candidates, key=lambda x: x[4], reverse=True)[:beam_size]
+    
+        # The beam with the highest score will contain the best caption
+        best_beam = beams[0]
+        caption = best_beam[3]  # Get the sequence of words with the highest score
+    
+        # Convert the sequence of word indices to words
+        caption_words = [vocab.itos[idx] for idx in caption]
+    
+        return caption_words, alphas  # caption_words is the generated caption, alphas are the attention weights at each timestep
     
     def init_hidden_state(self, encoder_out):
         mean_encoder_out = encoder_out.mean(dim=1)
