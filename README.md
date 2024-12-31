@@ -25,7 +25,7 @@ This model use pretrained inception model instead of resnet. To test to code, re
 To test the model, we need to run:
 
 1. Download the model from: [finetunemodel.pth](https://drive.google.com/file/d/1PriildZeOc9GIVHLfVJPfolMgONJhr0_/view?usp=sharing)
-2. Run command line: python infer.py --model_path /path/to/your/model.pth --image_path /path/to/your/image
+2. Run command line: python Fine_tune_model-main/infer.py --model_path /path/to/your/model.pth --image_path /path/to/your/image
 
 **Brief explaination about the files**:
 1. Model Fine-tune.ipynb: code to fine-tune the model
